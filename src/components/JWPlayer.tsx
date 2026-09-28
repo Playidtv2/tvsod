@@ -93,6 +93,7 @@ export const JWPlayer: React.FC<JWPlayerProps> = ({
   }, [isTestStream, resolvedStream, playbackMode]);
 
   const playPromiseRef = useRef<Promise<void> | null>(null);
+  const networkRetryRef = useRef<number>(0);
 
   // Safe play helper to gracefully handle browser autoplay restrictions and interruption by new load requests
   const safePlay = useCallback(() => {
@@ -150,6 +151,7 @@ export const JWPlayer: React.FC<JWPlayerProps> = ({
 
     let isDisposed = false;
     setHlsError(null);
+    networkRetryRef.current = 0;
     const sourceUrl = getStreamSourceUrl();
 
     // Clean up any existing HLS instance before attaching a new one
@@ -204,8 +206,24 @@ export const JWPlayer: React.FC<JWPlayerProps> = ({
           console.warn('HLS fatal error encountered:', data.type, data.details);
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              setHlsError('ช่องสัญญาณไม่ตอบสนอง หรือสัญญาณยังไม่เริ่มถ่ายทอดสด');
-              hls.startLoad();
+              if (networkRetryRef.current < 2) {
+                networkRetryRef.current += 1;
+                setTimeout(() => {
+                  if (!isDisposed && hlsRef.current) {
+                    hlsRef.current.startLoad();
+                  }
+                }, 1500);
+              } else {
+                hls.stopLoad();
+                const isUpcoming = currentMatch?.status === 'UPCOMING' || (currentMatch?.kickoffTime && currentMatch.kickoffTime !== 'จบการแข่งขัน' && !currentMatch.kickoffTime.includes("'"));
+                setHlsError(
+                  isUpcoming
+                    ? `สัญญาณสดคู่นี้ยังไม่เริ่มออกอากาศ (มีกำหนดแข่งขันเวลา ${currentMatch?.kickoffTime || 'วันนี้'}) สัญญาณสดจะเปิดให้รับชมเมื่อใกล้ถึงเวลาเตะ`
+                    : currentMatch?.status === 'FINISHED'
+                    ? 'การแข่งขันคู่นี้จบลงแล้ว สัญญาณสดปิดการออกอากาศ'
+                    : 'ช่องสัญญาณสดไม่ตอบสนอง หรือสัญญาณยังไม่เริ่มถ่ายทอดสด'
+                );
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               setHlsError('เกิดข้อผิดพลาดในการถอดรหัสวิดีโอ กำลังกู้คืน...');

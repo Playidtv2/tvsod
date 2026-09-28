@@ -47,20 +47,27 @@ export default function App() {
       if (data && Array.isArray(data.matches)) {
         setMatches(data.matches);
 
-        // Auto-select first match if none currently selected
+        // Auto-select match on initial load
         if (!selectedMatch && !isTestStream && data.matches.length > 0) {
-          // Prefer LIVE match, otherwise first upcoming
+          // If there is an active LIVE match, select and play it
           const live = data.matches.find(
             (m) => m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'"))
           );
-          const first = live || data.matches[0];
-          selectMatch(first, false);
+          if (live) {
+            selectMatch(live, false);
+          } else {
+            // When all matches are upcoming or finished, select the earliest upcoming match
+            // for match info display, and activate the high-speed Test Stream so user immediately sees live video!
+            const firstUpcoming = data.matches.find((m) => m.status === 'UPCOMING') || data.matches[0];
+            setSelectedMatch(firstUpcoming);
+            setIsTestStream(true);
+          }
         }
       } else {
         throw new Error('รูปแบบข้อมูลรายการสดไม่ถูกต้อง');
       }
     } catch (err: any) {
-      console.error('Fetch matches error:', err);
+      console.warn('Fetch matches notice:', err);
       setMatchesError(err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
     } finally {
       setIsLoadingMatches(false);
@@ -96,7 +103,7 @@ export default function App() {
         setStreamError(data?.message || 'ไม่พบช่องสัญญาณที่พร้อมใช้งานสำหรับคู่นี้');
       }
     } catch (err: any) {
-      console.error('Resolve stream error:', err);
+      console.warn('Resolve stream notice:', err);
       setStreamError('ไม่สามารถดึงข้อมูลสตรีมจากเซิร์ฟเวอร์ได้');
     } finally {
       setIsLoadingStream(false);

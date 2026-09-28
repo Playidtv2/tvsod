@@ -79,6 +79,27 @@ app.get('/api/matches', async (req: Request, res: Response) => {
   }
 });
 
+// Helper to perform safe fetch with timeout and headers
+async function fetchStreamWithTimeout(url: string, timeoutMs = 8000): Promise<globalThis.Response | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': DEFAULT_USER_AGENT,
+        'Referer': 'https://dooball99.top/',
+        'Origin': 'https://dooball99.top',
+        'Accept': '*/*',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return res;
+  } catch {
+    return null;
+  }
+}
+
 // 2. Stream Resolve API Proxy: https://dooballlaos.com/api/stream/resolve?url=...
 app.get('/api/stream/resolve', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
@@ -94,7 +115,7 @@ app.get('/api/stream/resolve', async (req: Request, res: Response) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     const apiUrl = `https://dooballlaos.com/api/stream/resolve?url=${encodeURIComponent(targetUrl)}`;
     const upstreamRes = await fetch(apiUrl, {
@@ -115,7 +136,7 @@ app.get('/api/stream/resolve', async (req: Request, res: Response) => {
     resolveCache.set(targetUrl, { data, timestamp: now });
     return res.json(data);
   } catch (error: any) {
-    console.error('Resolve error:', error?.message);
+    console.warn('Resolve stream notice:', error?.message);
     if (cached) {
       return res.json({ ...cached.data, _stale: true });
     }
@@ -155,7 +176,7 @@ app.get('/api/playlist.m3u8', async (req: Request, res: Response) => {
 
   if (!finalStreamUrl) {
     // Provide a sample stream if none provided
-    finalStreamUrl = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+    finalStreamUrl = '/api/test-demo.m3u8';
   }
 
   // Format the target stream link
@@ -164,8 +185,9 @@ app.get('/api/playlist.m3u8', async (req: Request, res: Response) => {
     proxyTarget = finalStreamUrl;
   } else if (finalStreamUrl.startsWith('/api/proxy/stream')) {
     proxyTarget = `/api/proxy/stream${finalStreamUrl.slice('/api/proxy/stream'.length)}`;
-  } else if (finalStreamUrl.includes('dooballlaos.com/api/proxy/stream')) {
-    proxyTarget = finalStreamUrl;
+  } else if (finalStreamUrl.includes('dooballlaos.com/api/proxy/stream?url=')) {
+    const extracted = finalStreamUrl.split('dooballlaos.com/api/proxy/stream?url=')[1];
+    proxyTarget = `/api/proxy/stream?url=${extracted}`;
   } else {
     proxyTarget = `/api/proxy/stream?url=${encodeURIComponent(finalStreamUrl)}`;
   }
@@ -183,52 +205,51 @@ ${proxyTarget}
 
 // 4. Stream Proxy endpoint: /api/proxy/stream?url=...
 app.get('/api/proxy/stream', async (req: Request, res: Response) => {
-  const targetUrl = req.query.url as string;
+  let targetUrl = req.query.url as string;
   if (!targetUrl) {
     return res.status(400).send('Missing url parameter');
   }
 
-  // We can either fetch via dooballlaos proxy or directly with headers
-  let fetchUrl = targetUrl;
-  if (!targetUrl.startsWith('http')) {
-    fetchUrl = `https://dooballlaos.com${targetUrl}`;
-  }
-
-  try {
-    const upstreamRes = await fetch(fetchUrl, {
-      headers: {
-        'User-Agent': DEFAULT_USER_AGENT,
-        'Referer': 'https://dooball99.top/',
-        'Origin': 'https://dooball99.top',
-        'Accept': '*/*',
-      },
-    });
-
-    if (!upstreamRes.ok) {
-      // If dooballlaos proxy returned 404, check if targetUrl was encoded inside
-      if (fetchUrl.includes('/api/proxy/stream?url=')) {
-        const nestedUrl = decodeURIComponent(fetchUrl.split('/api/proxy/stream?url=')[1]);
-        if (nestedUrl.startsWith('http')) {
-          const directRes = await fetch(nestedUrl, {
-            headers: {
-              'User-Agent': DEFAULT_USER_AGENT,
-              'Referer': 'https://dooball99.top/',
-              'Origin': 'https://dooball99.top',
-            },
-          });
-          if (directRes.ok) {
-            return handleStreamResponse(directRes, nestedUrl, req, res);
-          }
-        }
-      }
-      return res.status(upstreamRes.status).send(`Upstream returned ${upstreamRes.status}`);
+  // Unwrap any nested proxy wrappers
+  while (targetUrl.includes('/api/proxy/stream?url=')) {
+    const idx = targetUrl.indexOf('/api/proxy/stream?url=') + '/api/proxy/stream?url='.length;
+    const substr = targetUrl.slice(idx);
+    try {
+      targetUrl = decodeURIComponent(substr);
+    } catch {
+      targetUrl = substr;
     }
-
-    return handleStreamResponse(upstreamRes, fetchUrl, req, res);
-  } catch (err: any) {
-    console.error('Proxy stream fetch error:', err?.message);
-    return res.status(502).send(`Proxy fetch failed: ${err?.message}`);
   }
+
+  let finalUrl = targetUrl;
+  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    finalUrl = `https://dooballlaos.com${targetUrl.startsWith('/') ? '' : '/'}${targetUrl}`;
+  }
+
+  // Attempt 1: Fetch via dooballlaos proxy endpoint
+  const dooballProxyUrl = `https://dooballlaos.com/api/proxy/stream?url=${encodeURIComponent(finalUrl)}`;
+  let upstreamRes = await fetchStreamWithTimeout(dooballProxyUrl, 7000);
+  let resolvedSourceUrl = finalUrl;
+
+  // Attempt 2: If dooball proxy failed or returned 404/5xx, try direct connection to source with streaming headers
+  if (!upstreamRes || !upstreamRes.ok) {
+    if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
+      const directRes = await fetchStreamWithTimeout(finalUrl, 7000);
+      if (directRes && directRes.ok) {
+        upstreamRes = directRes;
+        resolvedSourceUrl = finalUrl;
+      }
+    }
+  }
+
+  if (!upstreamRes || !upstreamRes.ok) {
+    console.warn(`[Proxy stream] Stream is offline or not broadcasting yet: ${finalUrl.slice(0, 80)}`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'text/plain');
+    return res.status(503).send('Stream is currently offline or not yet broadcasting');
+  }
+
+  return handleStreamResponse(upstreamRes, resolvedSourceUrl, req, res);
 });
 
 async function handleStreamResponse(upstreamRes: globalThis.Response, sourceUrl: string, req: Request, res: Response) {
