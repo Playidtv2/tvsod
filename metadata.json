@@ -1,0 +1,6 @@
+{
+  "name": "DooBall Live - ดูบอลออนไลน์ ถ่ายทอดสด",
+  "description": "เว็บดูบอลออนไลน์ ดูบอลสดฟรี ถ่ายทอดสดฟุตบอลทุกลีกดัง พร้อมระบบ Proxy สตรีมมิ่ง M3U8 และเครื่องเล่น JW Player",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
