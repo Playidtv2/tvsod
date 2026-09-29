@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Filter, Radio, Calendar, Trophy, X } from 'lucide-react';
-import { Match } from '../types/football';
+import { Search, Filter, Radio, Calendar, Trophy, X, Activity } from 'lucide-react';
+import { Match, SportType } from '../types/football';
 import { MatchCard } from './MatchCard';
 
 interface MatchListProps {
   matches: Match[];
+  sportTypes?: SportType[];
   selectedMatch: Match | null;
   onSelectMatch: (match: Match) => void;
   isLoading: boolean;
@@ -12,12 +13,14 @@ interface MatchListProps {
 
 export const MatchList: React.FC<MatchListProps> = ({
   matches,
+  sportTypes = [],
   selectedMatch,
   onSelectMatch,
   isLoading,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'LIVE' | 'UPCOMING' | 'FINISHED'>('ALL');
+  const [selectedSport, setSelectedSport] = useState<string>('ALL');
   const [selectedLeague, setSelectedLeague] = useState<string>('ALL');
 
   // Extract unique leagues
@@ -38,15 +41,22 @@ export const MatchList: React.FC<MatchListProps> = ({
   // Filter matches
   const filteredMatches = useMemo(() => {
     return matches.filter((m) => {
+      // Sport Type filter
+      if (selectedSport !== 'ALL') {
+        if (String(m.sportTypeId) !== String(selectedSport)) {
+          return false;
+        }
+      }
+
       // Status filter
       if (statusFilter === 'LIVE') {
-        const isLive = m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'"));
+        const isLive = m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'")) || m.kickoffTime === 'กำลังแข่ง';
         if (!isLive) return false;
       } else if (statusFilter === 'UPCOMING') {
-        const isUpcoming = m.status === 'UPCOMING' && m.kickoffTime !== 'จบการแข่งขัน';
+        const isUpcoming = (m.status === 'UPCOMING' || m.status === 'NS') && m.kickoffTime !== 'จบการแข่งขัน' && m.kickoffTime !== 'กำลังแข่ง';
         if (!isUpcoming) return false;
       } else if (statusFilter === 'FINISHED') {
-        const isFinished = m.status === 'FINISHED' || m.kickoffTime === 'จบการแข่งขัน';
+        const isFinished = m.status === 'FINISHED' || m.kickoffTime === 'จบการแข่งขัน' || m.status === 'FT';
         if (!isFinished) return false;
       }
 
@@ -66,17 +76,17 @@ export const MatchList: React.FC<MatchListProps> = ({
 
       return true;
     });
-  }, [matches, statusFilter, selectedLeague, searchQuery]);
+  }, [matches, selectedSport, statusFilter, selectedLeague, searchQuery]);
 
   const liveMatchesCount = useMemo(() => {
     return matches.filter(
-      (m) => m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'"))
+      (m) => m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'")) || m.kickoffTime === 'กำลังแข่ง'
     ).length;
   }, [matches]);
 
   const upcomingMatchesCount = useMemo(() => {
     return matches.filter(
-      (m) => m.status === 'UPCOMING' && m.kickoffTime !== 'จบการแข่งขัน'
+      (m) => (m.status === 'UPCOMING' || m.status === 'NS') && m.kickoffTime !== 'จบการแข่งขัน' && m.kickoffTime !== 'กำลังแข่ง'
     ).length;
   }, [matches]);
 
@@ -87,13 +97,13 @@ export const MatchList: React.FC<MatchListProps> = ({
         <div>
           <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1">
             <Trophy className="h-4 w-4" />
-            <span>โปรแกรมถ่ายทอดสดฟุตบอลวันนี้</span>
+            <span>โปรแกรมถ่ายทอดสดกีฬาออนไลน์ & ดูบอลสด</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            ตารางบอลสด & ลิงก์ดูบอลออนไลน์
+            ตารางถ่ายทอดสด & สัญญาณสตรีมมิ่ง HD
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            เลือกคู่ที่ต้องการรับชม ระบบจะดึงสัญญาณ Proxy HLS และสร้าง M3U8 Master Playlist เข้าสู่ตัวเล่นทันที
+            เลือกประเภทกีฬาและคู่ที่ต้องการรับชม พร้อมช่องสัญญาณสด SIAM & beIN Sports รองรับ M3U8 Master Playlist
           </p>
         </div>
 
@@ -102,7 +112,7 @@ export const MatchList: React.FC<MatchListProps> = ({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาทีม, ลีก..."
+            placeholder="ค้นหาทีม, ลีก, ช่อง..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-8 py-2 rounded-lg bg-slate-900 border border-slate-800 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
@@ -118,6 +128,62 @@ export const MatchList: React.FC<MatchListProps> = ({
         </div>
       </div>
 
+      {/* Sport Types Selector Tabs (boxing, racing, tennis, football, etc.) */}
+      {sportTypes.length > 0 && (
+        <div className="mb-6 overflow-x-auto pb-2 scrollbar-none">
+          <div className="flex items-center gap-2 min-w-max">
+            <button
+              onClick={() => setSelectedSport('ALL')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                selectedSport === 'ALL'
+                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-sm shadow-emerald-500/10'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <Activity className="h-4 w-4" />
+              <span>กีฬาทั้งหมด</span>
+              <span className="font-mono-num text-[11px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                {matches.length}
+              </span>
+            </button>
+
+            {sportTypes.map((st) => {
+              const countForSport = matches.filter((m) => String(m.sportTypeId) === String(st.id)).length;
+              const isSelected = selectedSport === st.id;
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => setSelectedSport(st.id)}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400 shadow-sm shadow-emerald-500/10'
+                      : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                  }`}
+                >
+                  {st.icon ? (
+                    <span
+                      className="h-4 w-4 flex items-center justify-center shrink-0 text-current [&>svg]:h-4 [&>svg]:w-4"
+                      dangerouslySetInnerHTML={{ __html: st.icon }}
+                    />
+                  ) : (
+                    <Trophy className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  <span>{st.name}</span>
+                  {countForSport > 0 && (
+                    <span className="font-mono-num text-[11px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                      {countForSport}
+                    </span>
+                  )}
+                  {st.liveEventCount > 0 && (
+                    <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Filter Bar: Status segmented control + League Selector */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4 mb-6">
         {/* Status segmented controls */}
@@ -130,7 +196,7 @@ export const MatchList: React.FC<MatchListProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            ทุกลีก ({matches.length})
+            ทั้งหมด ({matches.length})
           </button>
           <button
             onClick={() => setStatusFilter('LIVE')}
@@ -152,7 +218,7 @@ export const MatchList: React.FC<MatchListProps> = ({
             }`}
           >
             <Calendar className="h-3 w-3" />
-            <span>วันนี้ ({upcomingMatchesCount})</span>
+            <span>วันนี้/เร็วๆ นี้ ({upcomingMatchesCount})</span>
           </button>
           <button
             onClick={() => setStatusFilter('FINISHED')}
@@ -162,7 +228,7 @@ export const MatchList: React.FC<MatchListProps> = ({
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            ผลบอลย้อนหลัง
+            ผลการแข่งขัน
           </button>
         </div>
 
@@ -172,9 +238,9 @@ export const MatchList: React.FC<MatchListProps> = ({
           <select
             value={selectedLeague}
             onChange={(e) => setSelectedLeague(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer"
+            className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer max-w-[200px] truncate"
           >
-            <option value="ALL">ทุกลีก ({matches.length})</option>
+            <option value="ALL">ทุกลีก / รายการ ({matches.length})</option>
             {leagues.map((lg) => (
               <option key={lg.name} value={lg.name}>
                 {lg.name} ({lg.count})

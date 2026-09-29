@@ -3,7 +3,7 @@ import { Navbar } from './components/Navbar';
 import { JWPlayer } from './components/JWPlayer';
 import { MatchList } from './components/MatchList';
 import { StreamDetailsModal } from './components/StreamDetailsModal';
-import { Match, MatchesResponse, StreamResolveResponse } from './types/football';
+import { Match, MatchesResponse, StreamResolveResponse, SportType } from './types/football';
 import {
   Tv,
   Radio,
@@ -20,6 +20,7 @@ import heroStadiumImg from './assets/images/hero_stadium_lights_1790567031636.jp
 
 export default function App() {
   const [matches, setMatches] = useState<Match[]>([]);
+  const [sportTypes, setSportTypes] = useState<SportType[]>([]);
   const [isLoadingMatches, setIsLoadingMatches] = useState<boolean>(true);
   const [matchesError, setMatchesError] = useState<string | null>(null);
 
@@ -46,12 +47,15 @@ export default function App() {
       const data: MatchesResponse = await res.json();
       if (data && Array.isArray(data.matches)) {
         setMatches(data.matches);
+        if (Array.isArray(data.sportTypes)) {
+          setSportTypes(data.sportTypes);
+        }
 
         // Auto-select match on initial load
         if (!selectedMatch && !isTestStream && data.matches.length > 0) {
           // If there is an active LIVE match, select and play it
           const live = data.matches.find(
-            (m) => m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'"))
+            (m) => m.status === 'LIVE' || (m.kickoffTime && m.kickoffTime.includes("'")) || m.kickoffTime === 'กำลังแข่ง'
           );
           if (live) {
             selectMatch(live, false);
@@ -360,6 +364,7 @@ export default function App() {
       {/* Matches List Section */}
       <MatchList
         matches={matches}
+        sportTypes={sportTypes}
         selectedMatch={selectedMatch}
         onSelectMatch={selectMatch}
         isLoading={isLoadingMatches}

@@ -649,19 +649,39 @@ export const JWPlayer: React.FC<JWPlayerProps> = ({
           </button>
         </div>
 
-        {/* Match Stream Links / Alternative Channels */}
-        {currentMatch?.streamLinks && currentMatch.streamLinks.length > 0 && onSelectChannel && (
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            <span className="text-xs text-slate-400 mr-1 hidden sm:inline">ช่องสำรอง:</span>
-            {currentMatch.streamLinks.map((link, idx) => (
-              <button
-                key={link.id || idx}
-                onClick={() => onSelectChannel(link.url)}
-                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
-              >
-                {link.label || `ลิงก์ ${idx + 1}`}
-              </button>
-            ))}
+        {/* Match Stream Links / Alternative Channels (Channels from GraphQL or streamLinks) */}
+        {((currentMatch?.channels && currentMatch.channels.length > 0) || (currentMatch?.streamLinks && currentMatch.streamLinks.length > 0)) && onSelectChannel && (
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full py-1">
+            <span className="text-xs text-slate-400 mr-1 hidden sm:inline whitespace-nowrap">ช่องถ่ายทอด:</span>
+            {currentMatch.channels && currentMatch.channels.length > 0 ? (
+              currentMatch.channels.map((ch, idx) => {
+                const isActive = (resolvedStream?.rawM3u8Url === ch.url) || (!resolvedStream?.rawM3u8Url && idx === 0);
+                return (
+                  <button
+                    key={`${ch.id || idx}_${ch.url}`}
+                    onClick={() => onSelectChannel(ch.url)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors cursor-pointer whitespace-nowrap ${
+                      isActive
+                        ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                        : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white'
+                    }`}
+                  >
+                    <Tv className="h-3 w-3" />
+                    <span>{ch.title || `ช่อง ${idx + 1}`}</span>
+                  </button>
+                );
+              })
+            ) : (
+              currentMatch.streamLinks?.map((link, idx) => (
+                <button
+                  key={link.id || idx}
+                  onClick={() => onSelectChannel(link.url)}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  {link.label || `ลิงก์ ${idx + 1}`}
+                </button>
+              ))
+            )}
           </div>
         )}
       </div>

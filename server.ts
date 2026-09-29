@@ -33,39 +33,198 @@ interface CacheEntry<T> {
 }
 const matchesCache: { entry: CacheEntry<any> | null } = { entry: null };
 const resolveCache = new Map<string, CacheEntry<any>>();
+const sportTypesCache: { entry: CacheEntry<any> | null } = { entry: null };
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const GRAPHQL_ENDPOINT = 'https://api4.xn--72czaud0ezbn4b8de.com/graphql';
 
-// 1. Matches API Proxy: https://dooballlaos.com/api/matches
+// 1. Matches API Proxy: Merges dooballlaos matches with live GraphQL sportEvents & sportTypes
 app.get('/api/matches', async (req: Request, res: Response) => {
   const now = Date.now();
   const cacheAge = matchesCache.entry ? now - matchesCache.entry.timestamp : Infinity;
 
-  // Use cache if less than 30 seconds old
-  if (matchesCache.entry && cacheAge < 30000 && !req.query.refresh) {
+  // Use cache if less than 20 seconds old
+  if (matchesCache.entry && cacheAge < 20000 && !req.query.refresh) {
     return res.json({ ...matchesCache.entry.data, _cached: true, _age: Math.round(cacheAge / 1000) });
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    // Parallel fetch from both dooballlaos API and the GraphQL backend
+    const [laosRes, gqlRes, typesRes] = await Promise.allSettled([
+      fetch('https://dooballlaos.com/api/matches', {
+        headers: { 'User-Agent': DEFAULT_USER_AGENT, 'Accept': 'application/json' },
+      }).then(r => r.ok ? r.json() : null),
+      fetch(GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': DEFAULT_USER_AGENT },
+        body: JSON.stringify({
+          query: `
+            query GetLiveSportEvents {
+              sportEvents {
+                id
+                name
+                homeTeamName
+                awayTeamName
+                homeScore
+                awayScore
+                homeTeamLogoUrl
+                awayTeamLogoUrl
+                eventDateTime
+                state
+                channels
+                sportLeague {
+                  id
+                  name
+                  logoUrl
+                  sportTypeId
+                }
+              }
+            }
+          `
+        })
+      }).then(r => r.ok ? r.json() : null),
+      fetch(GRAPHQL_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': DEFAULT_USER_AGENT },
+        body: JSON.stringify({
+          query: `
+            query GetSportTypes {
+              sportTypes {
+                id
+                name
+                icon
+                liveEventCount
+              }
+            }
+          `
+        })
+      }).then(r => r.ok ? r.json() : null)
+    ]);
 
-    const upstreamRes = await fetch('https://dooballlaos.com/api/matches', {
-      headers: {
-        'User-Agent': DEFAULT_USER_AGENT,
-        'Accept': 'application/json',
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    const laosData = laosRes.status === 'fulfilled' ? laosRes.value : null;
+    const gqlData = gqlRes.status === 'fulfilled' ? gqlRes.value?.data?.sportEvents : null;
+    const typesData = typesRes.status === 'fulfilled' ? typesRes.value?.data?.sportTypes : null;
 
-    if (!upstreamRes.ok) {
-      throw new Error(`Upstream returned status ${upstreamRes.status}`);
+    let combinedMatches: any[] = [];
+    const seenNames = new Set<string>();
+
+    // 1. Prioritize GraphQL live and upcoming sport events with real channels
+    if (Array.isArray(gqlData)) {
+      // Sort: LIVE first, then UPCOMING, then FINISHED
+      const sortedGql = [...gqlData].sort((a, b) => {
+        if (a.state === 'LIVE' && b.state !== 'LIVE') return -1;
+        if (b.state === 'LIVE' && a.state !== 'LIVE') return 1;
+        return new Date(b.eventDateTime).getTime() - new Date(a.eventDateTime).getTime();
+      });
+
+      sortedGql.forEach((item: any) => {
+        const homeName = item.homeTeamName || item.name?.split(' vs ')[0] || 'ทีมเหย้า';
+        const awayName = item.awayTeamName || item.name?.split(' vs ')[1] || 'ทีมเยือน';
+        const key = `${homeName.toLowerCase().trim()}_${awayName.toLowerCase().trim()}`;
+        seenNames.add(key);
+
+        const eventDate = item.eventDateTime ? new Date(item.eventDateTime) : new Date();
+        const dateStr = eventDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+        const timeStr = eventDate.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        let kickoffTime = timeStr;
+        if (item.state === 'LIVE') {
+          kickoffTime = 'กำลังแข่ง';
+        } else if (item.state === 'FINISHED') {
+          kickoffTime = 'จบการแข่งขัน';
+        }
+
+        const rawChannels = Array.isArray(item.channels) ? item.channels : [];
+        const primaryChannel = rawChannels[0];
+
+        combinedMatches.push({
+          id: `gql_${item.id}`,
+          slug: `${homeName}-vs-${awayName}`.replace(/\s+/g, '-'),
+          date: dateStr,
+          dateOrder: item.state === 'LIVE' ? 0 : item.state === 'UPCOMING' ? 1 : 2,
+          homeTeam: {
+            name: homeName,
+            score: item.homeScore,
+            logo: item.homeTeamLogoUrl || undefined,
+          },
+          awayTeam: {
+            name: awayName,
+            score: item.awayScore,
+            logo: item.awayTeamLogoUrl || undefined,
+          },
+          league: {
+            name: item.sportLeague?.name || 'ถ่ายทอดสด',
+            logo: item.sportLeague?.logoUrl || undefined,
+            sportTypeId: item.sportLeague?.sportTypeId || 1,
+          },
+          kickoffTime,
+          status: item.state || 'UPCOMING',
+          currentMinute: item.state === 'LIVE' ? 'LIVE' : undefined,
+          link: primaryChannel?.url || '',
+          channels: rawChannels.map((c: any) => ({
+            id: c.id,
+            url: c.url,
+            image: c.image,
+            title: c.title || c.tvstation_name || 'ช่องถ่ายทอดสด',
+            backup: c.backup,
+            status: c.status,
+            category: c.category,
+            tvstation_name: c.tvstation_name,
+          })),
+          sportTypeId: item.sportLeague?.sportTypeId || '1',
+        });
+      });
     }
 
-    const data = await upstreamRes.json();
-    matchesCache.entry = { data, timestamp: now };
-    return res.json(data);
+    // 2. Also incorporate dooballlaos matches (if unique)
+    if (laosData && Array.isArray(laosData.matches)) {
+      laosData.matches.forEach((m: any) => {
+        const homeName = m.homeTeam?.name || '';
+        const awayName = m.awayTeam?.name || '';
+        const key = `${homeName.toLowerCase().trim()}_${awayName.toLowerCase().trim()}`;
+        if (!seenNames.has(key)) {
+          seenNames.add(key);
+          combinedMatches.push({
+            ...m,
+            sportTypeId: '1', // Football
+          });
+        }
+      });
+    }
+
+    // Sport Types with fallback to default set
+    const fallbackSportTypes = [
+      { id: "1", name: "ฟุตบอล", icon: null, liveEventCount: 0 },
+      { id: "35", name: "มวย", icon: null, liveEventCount: 0 },
+      { id: "8", name: "แข่งรถ", icon: null, liveEventCount: 0 },
+      { id: "32", name: "มอเตอร์ไซค์", icon: null, liveEventCount: 0 },
+      { id: "2", name: "เทนนิส", icon: null, liveEventCount: 0 },
+      { id: "3", name: "บาสเกตบอล", icon: null, liveEventCount: 0 },
+      { id: "14", name: "วอลเลย์บอล", icon: null, liveEventCount: 0 },
+      { id: "18", name: "แบดมินตัน", icon: null, liveEventCount: 0 },
+      { id: "16", name: "สนุกเกอร์", icon: null, liveEventCount: 0 },
+      { id: "37", name: "กอล์ฟ", icon: null, liveEventCount: 0 },
+      { id: "4", name: "อื่นๆ", icon: null, liveEventCount: 0 }
+    ];
+
+    const sportTypes = Array.isArray(typesData) ? typesData : fallbackSportTypes;
+
+    // Update liveEventCount for each sport type
+    sportTypes.forEach((st: any) => {
+      st.liveEventCount = combinedMatches.filter(
+        (m: any) => String(m.sportTypeId) === String(st.id) && m.status === 'LIVE'
+      ).length;
+    });
+
+    const resultData = {
+      success: true,
+      count: combinedMatches.length,
+      matches: combinedMatches,
+      sportTypes,
+    };
+
+    matchesCache.entry = { data: resultData, timestamp: now };
+    return res.json(resultData);
   } catch (error: any) {
     console.warn('Matches fetch error, checking cache or fallback:', error?.message);
     if (matchesCache.entry) {
@@ -73,31 +232,82 @@ app.get('/api/matches', async (req: Request, res: Response) => {
     }
     return res.status(502).json({
       success: false,
-      message: 'Unable to fetch matches from dooballlaos upstream',
+      message: 'Unable to fetch matches',
       error: error?.message,
     });
   }
 });
 
-// Helper to perform safe fetch with timeout and headers
-async function fetchStreamWithTimeout(url: string, timeoutMs = 8000): Promise<globalThis.Response | null> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': DEFAULT_USER_AGENT,
-        'Referer': 'https://dooball99.top/',
-        'Origin': 'https://dooball99.top',
-        'Accept': '*/*',
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    return res;
-  } catch {
-    return null;
+// Sport Types endpoint
+app.get('/api/sport-types', async (req: Request, res: Response) => {
+  const now = Date.now();
+  if (sportTypesCache.entry && now - sportTypesCache.entry.timestamp < 60000) {
+    return res.json(sportTypesCache.entry.data);
   }
+
+  try {
+    const gqlRes = await fetch(GRAPHQL_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': DEFAULT_USER_AGENT },
+      body: JSON.stringify({
+        query: `
+          query GetSportTypes {
+            sportTypes {
+              id
+              name
+              icon
+              liveEventCount
+            }
+          }
+        `
+      })
+    });
+    if (gqlRes.ok) {
+      const data = await gqlRes.json();
+      if (data.data?.sportTypes) {
+        sportTypesCache.entry = { data: data.data.sportTypes, timestamp: now };
+        return res.json(data.data.sportTypes);
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return res.json([]);
+});
+
+// Helper to perform safe fetch with timeout and headers
+async function fetchStreamWithTimeout(url: string, timeoutMs = 8000, customReferer?: string): Promise<globalThis.Response | null> {
+  const referersToTry = [
+    customReferer,
+    'https://www.do-ball.com/',
+    'https://www.dooball-doonang.com/',
+    'https://dooball99.top/',
+    'https://www3.xn--72czaud0ezbn4b8de.com/',
+  ].filter(Boolean) as string[];
+
+  for (const ref of referersToTry) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': DEFAULT_USER_AGENT,
+          'Referer': ref,
+          'Origin': ref.endsWith('/') ? ref.slice(0, -1) : ref,
+          'Accept': '*/*',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.ok) {
+        return res;
+      }
+    } catch {
+      // try next
+    }
+  }
+  return null;
 }
 
 // 2. Stream Resolve API Proxy: https://dooballlaos.com/api/stream/resolve?url=...
@@ -105,6 +315,17 @@ app.get('/api/stream/resolve', async (req: Request, res: Response) => {
   const targetUrl = req.query.url as string;
   if (!targetUrl) {
     return res.status(400).json({ success: false, message: 'Parameter "url" is required' });
+  }
+
+  // If the targetUrl is already a direct m3u8 stream from channels
+  if (targetUrl.includes('.m3u8')) {
+    return res.json({
+      success: true,
+      source: 'direct_channel',
+      rawM3u8Url: targetUrl,
+      streamUrl: `/api/proxy/stream?url=${encodeURIComponent(targetUrl)}`,
+      allCandidates: [targetUrl],
+    });
   }
 
   const now = Date.now();
@@ -181,8 +402,12 @@ app.get('/api/playlist.m3u8', async (req: Request, res: Response) => {
 
   // Format the target stream link
   let proxyTarget: string;
+  const useUpstreamHost = req.query.upstream === '1' || req.query.upstream === 'true';
+
   if (direct) {
     proxyTarget = finalStreamUrl;
+  } else if (useUpstreamHost) {
+    proxyTarget = `https://dooballlaos.com/api/proxy/stream?url=${encodeURIComponent(finalStreamUrl)}`;
   } else if (finalStreamUrl.startsWith('/api/proxy/stream')) {
     proxyTarget = `/api/proxy/stream${finalStreamUrl.slice('/api/proxy/stream'.length)}`;
   } else if (finalStreamUrl.includes('dooballlaos.com/api/proxy/stream?url=')) {

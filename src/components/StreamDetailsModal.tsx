@@ -32,16 +32,16 @@ export const StreamDetailsModal: React.FC<StreamDetailsModalProps> = ({
   const resolveEndpointUrl = `/api/stream/resolve?url=${encodeURIComponent(fixtureUrl)}`;
   const matchesEndpointUrl = `/api/matches`;
 
-  const streamProxyUrl = resolvedStream?.streamUrl
-    ? `${window.location.origin}${resolvedStream.streamUrl}`
-    : `${window.location.origin}/api/proxy/stream?url=${encodeURIComponent(resolvedStream?.rawM3u8Url || 'https://k7ktdny7ll.kaibannpongmungtai.top/do-ball.com/siam-2/playlist.m3u8?wmsAuthSign=...')}`;
+  const rawM3u8Url = resolvedStream?.rawM3u8Url || 'https://k7ktdny7ll.kaibannpongmungtai.top/do-ball.com/siam-2/playlist.m3u8?wmsAuthSign=...';
+
+  const streamUrl = `https://dooballlaos.com/api/proxy/stream?url=${rawM3u8Url}`;
 
   const masterPlaylistText = `#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-STREAM-INF:BANDWIDTH=1212323,FRAME-RATE=25,RESOLUTION=1280x720,CODECS="avc1.64001f,mp4a.40.2"
-${streamProxyUrl}`;
+https://dooballlaos.com/api/proxy/stream?url=${rawM3u8Url}`;
 
-  const masterPlaylistEndpoint = `/api/playlist.m3u8?url=${encodeURIComponent(resolvedStream?.streamUrl || resolvedStream?.rawM3u8Url || fixtureUrl)}`;
+  const localMasterPlaylistEndpoint = `/api/playlist.m3u8?url=${encodeURIComponent(rawM3u8Url)}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
@@ -180,7 +180,7 @@ ${streamProxyUrl}`;
 
             <div className="flex flex-wrap items-center gap-2">
               <a
-                href={masterPlaylistEndpoint}
+                href={localMasterPlaylistEndpoint}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-semibold hover:bg-emerald-400 transition-colors"

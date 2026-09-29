@@ -7,6 +7,18 @@ export interface Team {
 export interface League {
   name: string;
   logo?: string;
+  sportTypeId?: number | string;
+}
+
+export interface StreamChannel {
+  id?: number | string;
+  url: string;
+  image?: string;
+  title: string;
+  backup?: string;
+  status?: string;
+  category?: string;
+  tvstation_name?: string;
 }
 
 export interface StreamLink {
@@ -14,6 +26,13 @@ export interface StreamLink {
   label: string;
   url: string;
   quality?: string;
+}
+
+export interface SportType {
+  id: string;
+  name: string;
+  icon?: string | null;
+  liveEventCount: number;
 }
 
 export interface Match {
@@ -29,6 +48,8 @@ export interface Match {
   currentMinute?: string;
   link: string;
   streamLinks?: StreamLink[];
+  channels?: StreamChannel[];
+  sportTypeId?: string | number;
 }
 
 export interface MatchesResponse {
@@ -36,6 +57,7 @@ export interface MatchesResponse {
   source?: string;
   count: number;
   matches: Match[];
+  sportTypes?: SportType[];
   _cached?: boolean;
   _stale?: boolean;
 }
@@ -48,4 +70,5 @@ export interface StreamResolveResponse {
   allCandidates?: string[];
   message?: string;
   _cached?: boolean;
+  channels?: StreamChannel[];
 }

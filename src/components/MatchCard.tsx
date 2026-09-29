@@ -122,9 +122,14 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, isSelected, onSelec
 
       {/* Footer Info & Action */}
       <div className="mt-3 pt-2.5 border-t border-slate-800/60 flex items-center justify-between text-xs">
-        <span className="text-[11px] text-slate-400">
-          {match.date || 'วันนี้'}
-        </span>
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+          <span>{match.date || 'วันนี้'}</span>
+          {match.channels && match.channels.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 font-mono-num border border-slate-700">
+              {match.channels.length} ช่อง
+            </span>
+          )}
+        </div>
 
         <button
           type="button"
@@ -139,7 +144,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ match, isSelected, onSelec
           }`}
         >
           {isLive ? <Radio className="h-3 w-3 animate-pulse" /> : <Play className="h-3 w-3 fill-current" />}
-          <span>{isLive ? 'ดูบอลสด' : isFinished ? 'ดูย้อนหลัง' : 'รับชม'}</span>
+          <span>{isLive ? 'ดูสดเลย' : isFinished ? 'ดูย้อนหลัง' : 'รับชม'}</span>
         </button>
       </div>
     </div>
